@@ -1,0 +1,4 @@
+interface:
+  display_name: "My Paper Translation"
+  short_description: "忠实翻译论文 PDF，自动分批、保留公式图表，并支持续译与按需并行"
+  default_prompt: "使用 $my-paper-translation 将这篇论文完整翻译成中文，按六页上限自动分批并保存译文。"
