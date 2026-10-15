@@ -1,0 +1,4 @@
+interface:
+  display_name: "My Paper Translation"
+  short_description: "Faithful paper translation with batching and resumable progress"
+  default_prompt: "Use $my-paper-translation-en to translate this entire paper into Spanish, automatically split batches within the six-page limit, and save the translation."

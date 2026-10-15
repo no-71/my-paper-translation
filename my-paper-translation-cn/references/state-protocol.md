@@ -7,6 +7,8 @@
 - `sequential`：普通翻译，默认模式；不启用术语表，不要求术语字段。
 - `parallel`：用户明确要求的子代理翻译，即使仅运行一个子代理也使用此模式；初始化后按 [术语协议](glossary-protocol.md) 发布第一版术语表，再分配任务。
 
+审校设置在初始化时使用 `--review on|off`，默认 `on`；仅用户明确要求时用 `off`。进度保存 `review_enabled`，旧任务缺少该字段按开启处理，不提供中途切换。关闭时按主 skill 的总规则跳过内容审校，结构校验、术语维护和问题处理照常。
+
 模式持久化，不依据术语文件是否存在推断。旧进度缺少 `mode` 或任务需切换模式时，主模型核对实际执行方式、保留现有进度后明确登记模式，并补齐对应报告及术语版本；禁止重新初始化覆盖结果或静默切换。
 
 在 `tmp_gpt/translation/<论文标识>/plan.json` 保存完整索引与计划。以下仅示范一个单元和批次：
@@ -89,9 +91,17 @@ python3 <skill>/scripts/translation_state.py accept --root <任务目录> --batc
 python3 <skill>/scripts/translation_state.py accept --root <任务目录> --batch B001 --reviewed --terms-reviewed --terms-note "逐项裁决及理由"
 ```
 
+以上审校标志仅在开启审校时使用。关闭时沿用 `accept`，省略 `--reviewed` 和 `--terms-reviewed`（传入会报错）：
+
+```text
+python3 <skill>/scripts/translation_state.py accept --root <任务目录> --batch B001
+```
+
+子代理批次如有术语建议，关闭审校也必须附 `--terms-note "逐项裁决及理由"`，但不逐段复审术语使用。工具仍检查范围、对象清单、版本、指纹及未决问题。批次保存 `reviewed: false`，子代理批次另存 `terms_reviewed: false`；`accepted` 仅表示已接收可合并，不能据此称为审校通过。
+
 标志声明主模型已实际核对，工具不判断翻译语义、公式内容、术语含义或使用记录是否完整。核对标准遵循主 skill，术语裁决遵循术语协议。
 
-术语发布后，工具绑定的相关条目发生变化时，将已验收批次标记 `terms_stale` 并排除出合并前缀。译文兼容则重新核对并用上述命令验收；确有冲突或需重派时：
+术语发布后，工具绑定的相关条目发生变化时，将已验收批次标记 `terms_stale` 并排除出合并前缀。按审校设置重新处理并用对应命令接收（关闭时仅处理术语建议、刷新绑定，不复审译文）；已知冲突或需重派时：
 
 ```text
 python3 <skill>/scripts/translation_state.py reject --root <任务目录> --batch B001 --reason "原文位置与修复要求"
@@ -110,4 +120,4 @@ python3 <skill>/scripts/translation_state.py status --root <任务目录>
 
 输出不得覆盖原文、中间文件或其他任务的内容；已有不明来源文件时改用新输出名，已有最终译文被外部修改时先保留用户改动再处理。合并后报告范围，并按主 skill 做最终核对与交付。
 
-状态为 `pending`（待分配）、`assigned`（翻译中）、`submitted`（已提交）、`accepted`（已验收）、`repair`（待修复）；`terms_stale` 表示术语需复核，`merged` 记录有效合并范围。`status` 返回模式、术语版本及批次状态，普通模式术语版本为 null。进度原子写入并保留事件历史；主模型顺序执行修改命令，不并发改写进度。
+状态为 `pending`（待分配）、`assigned`（翻译中）、`submitted`（已提交）、`accepted`（已接收）、`repair`（待修复）；`terms_stale` 表示术语需复核，`merged` 记录有效合并范围。`status` 返回模式、`review_enabled`、术语版本及批次状态，普通模式术语版本为 null。进度原子写入并保留事件历史；主模型顺序执行修改命令，不并发改写进度。

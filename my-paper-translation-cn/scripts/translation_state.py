@@ -72,6 +72,8 @@ def load_state(root):
     require(read(Path(state["plan_path"])) == state["plan"], "进度中的计划与原计划不符")
     validate_plan(state["plan"])
     require(state.get("mode") in ("sequential", "parallel"), "旧进度缺少执行模式，请核对任务后补充 mode 为 sequential 或 parallel；不要重置已有进度")
+    state.setdefault("review_enabled", True)
+    require(type(state["review_enabled"]) is bool, "审校设置必须为布尔值")
     return state
 
 
@@ -192,14 +194,16 @@ def run(args):
         require(plan_path.is_relative_to(root), "计划必须位于任务中间目录内")
         plan = read(plan_path)
         validate_plan(plan)
-        state = {"version": 2, "mode": args.mode, "pdf": str(pdf), "pdf_sha256": digest(pdf),
+        state = {"version": 2, "mode": args.mode, "review_enabled": args.review == "on",
+                 "pdf": str(pdf), "pdf_sha256": digest(pdf),
                  "plan_path": str(plan_path), "plan_sha256": digest(plan_path), "plan": plan,
                  "batches": {b["id"]: {"status": "pending"} for b in plan["batches"]},
                  "assignments": [], "history": [], "merged": []}
     else:
         state = load_state(root)
         if args.command == "status":
-            return {"mode": state["mode"], "glossary_version": state.get("glossary_version"),
+            return {"mode": state["mode"], "review_enabled": state["review_enabled"],
+                    "glossary_version": state.get("glossary_version"),
                     "batches": state["batches"], "merged": state["merged"], "ready_prefix": prefix(state),
                     "output_stale": state.get("output_stale", False),
                     "complete": len(state["merged"]) == len(state["batches"]) and not state.get("output_stale", False)}
@@ -276,16 +280,24 @@ def run(args):
                 entry.update(hashes)
                 entry["status"] = "submitted"
             else:
-                require(args.reviewed, "必须实际核对原文后传入 --reviewed")
+                if state["review_enabled"]:
+                    require(args.reviewed, "必须实际核对原文后传入 --reviewed")
+                else:
+                    require(not args.reviewed and not args.terms_reviewed, "已关闭审校，请省略 --reviewed 和 --terms-reviewed，避免误记为已审校")
                 require(entry["status"] == "submitted" or (parallel(state) and entry["status"] == "accepted"), "仅已提交批次或需重新核对术语的已验收批次可验收")
                 report, _ = check_delivery(root, state, args.batch, True)
                 require(not report["issues"], "仍有未解决问题，不可验收")
                 if parallel(state):
-                    require(args.terms_reviewed, "子代理批次需主模型处理术语建议并传入 --terms-reviewed")
+                    if state["review_enabled"]:
+                        require(args.terms_reviewed, "子代理批次需主模型处理术语建议并传入 --terms-reviewed")
                     require(not report["term_proposals"] or args.terms_note.strip(), "本批含术语建议，请用 --terms-note 记录裁决及理由")
                     entry["term_bindings"] = term_bindings(root, state, report)
-                    entry["terms_reviewed_version"] = state["glossary_version"]
+                    entry["terms_bound_version"] = state["glossary_version"]
+                    entry["terms_reviewed"] = state["review_enabled"]
+                    if state["review_enabled"]:
+                        entry["terms_reviewed_version"] = state["glossary_version"]
                     entry["terms_stale"] = False
+                entry["reviewed"] = state["review_enabled"]
                 entry["status"] = "accepted"
         elif args.command == "merge":
             ids = prefix(state)
@@ -317,7 +329,8 @@ def run(args):
     event = {k: v for k, v in vars(args).items() if k != "root"}
     state["history"].append(event)
     write(state_path, state)
-    return {"command": args.command, "mode": state["mode"], "glossary_version": state.get("glossary_version"),
+    return {"command": args.command, "mode": state["mode"], "review_enabled": state["review_enabled"],
+            "glossary_version": state.get("glossary_version"),
             "merged": state["merged"], "output_stale": state.get("output_stale", False),
             "complete": len(state["merged"]) == len(state["batches"]) and not state.get("output_stale", False)}
 
@@ -332,6 +345,7 @@ def main():
             sub.add_argument("--pdf", required=True)
             sub.add_argument("--plan", required=True)
             sub.add_argument("--mode", choices=("sequential", "parallel"), default="sequential", help="普通顺序翻译或子代理翻译；默认 sequential")
+            sub.add_argument("--review", choices=("on", "off"), default="on", help="是否内容审校，默认 on；仅用户明确关闭时用 off")
         elif command == "glossary-publish":
             sub.add_argument("--file", required=True)
             sub.add_argument("--reason", required=True)
